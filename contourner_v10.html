@@ -1,0 +1,965 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<title>Contourner — évite la cohue</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#10151b;
+    --panel:#182029;
+    --panel-2:#1e2831;
+    --border:#283340;
+    --text:#e7edf3;
+    --text-dim:#8a97a6;
+    --accent:#ffb238;
+    --accent-ink:#2a1c02;
+    --teal:#2dd4bf;
+    --purple:#a78bfa;
+    --flow-green:#3ecf8e;
+    --flow-yellow:#f5c518;
+    --flow-orange:#ff8a3d;
+    --flow-red:#e5484d;
+    --radius:14px;
+  }
+  *{box-sizing:border-box;}
+  html,body{height:100%;margin:0;}
+  body{
+    font-family:'Space Grotesk',system-ui,sans-serif;
+    color:var(--text);
+    background:var(--bg);
+    overflow:hidden;
+  }
+  #map{position:absolute;inset:0;background:var(--bg);}
+  .grayscale-tiles{ filter: grayscale(1) contrast(1.05) brightness(1.02); }
+  .mono{font-family:'IBM Plex Mono',monospace;}
+
+  .brand{
+    position:absolute; top:16px; left:16px; z-index:500;
+    background:rgba(16,21,27,.86);
+    backdrop-filter:blur(6px);
+    border:1px solid var(--border);
+    border-radius:999px;
+    padding:9px 16px 9px 14px;
+    display:flex; align-items:center; gap:8px;
+    box-shadow:0 6px 18px rgba(0,0,0,.35);
+  }
+  .brand svg{flex:none;}
+  .brand .name{font-weight:700; font-size:15px; letter-spacing:.2px;}
+  .brand .tag{font-size:11px; color:var(--text-dim); margin-left:2px;}
+
+  .fab{
+    position:absolute; z-index:500;
+    width:46px; height:46px; border-radius:50%;
+    background:var(--panel); border:1px solid var(--border);
+    color:var(--text); display:flex; align-items:center; justify-content:center;
+    cursor:pointer; box-shadow:0 6px 16px rgba(0,0,0,.35);
+  }
+  .fab:hover{background:var(--panel-2);}
+  #locate-btn{ right:16px; bottom:16px; }
+
+  .panel{
+    position:absolute; z-index:490;
+    top:16px; bottom:16px; left:16px;
+    width:340px;
+    background:var(--panel);
+    border:1px solid var(--border);
+    border-radius:var(--radius);
+    box-shadow:0 12px 30px rgba(0,0,0,.4);
+    display:flex; flex-direction:column;
+    overflow:hidden;
+    margin-top:66px; /* below brand pill */
+  }
+  .panel-scroll{
+    overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:16px;
+  }
+  .field-label{
+    font-size:11px; text-transform:none; color:var(--text-dim); margin-bottom:6px; display:block;
+  }
+  input[type=text], input[type=password]{
+    width:100%; background:var(--bg); border:1px solid var(--border); color:var(--text);
+    border-radius:9px; padding:10px 12px; font-family:'Space Grotesk',sans-serif; font-size:14px;
+  }
+  input[type=text]:focus, input[type=password]:focus{outline:2px solid var(--accent); outline-offset:1px;}
+  .btn{
+    background:var(--accent); color:var(--accent-ink); border:none; border-radius:9px;
+    padding:10px 14px; font-weight:600; font-size:14px; cursor:pointer; font-family:'Space Grotesk',sans-serif;
+  }
+  .btn:hover{filter:brightness(1.06);}
+  .btn:disabled{opacity:.5; cursor:default;}
+  .btn.ghost{
+    background:transparent; color:var(--text-dim); border:1px solid var(--border);
+  }
+  .btn.icon{
+    flex:0 0 auto; width:42px; padding:0; display:flex; align-items:center; justify-content:center;
+  }
+  .row{display:flex; gap:8px;}
+  .row > input{flex:1;}
+
+  #key-card{
+    border:1px solid var(--border); border-radius:10px; padding:12px; background:var(--panel-2);
+  }
+  #key-card p{margin:0 0 10px; font-size:12.5px; color:var(--text-dim); line-height:1.5;}
+  #key-card a{color:var(--teal);}
+  #key-status{font-size:12px; margin-top:8px; color:var(--text-dim);}
+
+  .suggestions{
+    display:flex; flex-direction:column; gap:4px; margin-top:6px;
+  }
+  .suggestion{
+    text-align:left; background:var(--bg); border:1px solid var(--border); color:var(--text);
+    border-radius:8px; padding:8px 10px; font-size:13px; cursor:pointer;
+  }
+  .suggestion:hover{border-color:var(--teal);}
+
+  .route-card{
+    border:1px solid var(--border); border-radius:10px; padding:12px; cursor:pointer;
+    background:var(--panel-2); display:flex; flex-direction:column; gap:6px;
+  }
+  .route-card.selected{border-color:var(--teal); box-shadow:0 0 0 1px var(--teal) inset;}
+  .route-card .top{display:flex; justify-content:space-between; align-items:baseline; gap:6px; flex-wrap:wrap;}
+  .route-card .badge{
+    font-size:10.5px; padding:2px 8px; border-radius:999px; font-weight:600; letter-spacing:.2px;
+  }
+  .badge.low-traffic{background:rgba(45,212,191,.15); color:var(--teal);}
+  .badge.fastest{background:rgba(255,178,56,.15); color:var(--accent);}
+  .badge.emergency{background:rgba(167,139,250,.15); color:var(--purple);}
+  .route-card .time{font-size:20px; font-weight:600;}
+  .route-card .meta{font-size:12px; color:var(--text-dim); display:flex; gap:10px;}
+  .route-card .delay{font-size:12px;}
+  .delay.ok{color:var(--flow-green);}
+  .delay.mid{color:var(--flow-yellow);}
+  .delay.bad{color:var(--flow-red);}
+  .badges-row{display:flex; gap:6px; flex-wrap:wrap;}
+
+  #go-btn{width:100%; margin-bottom:12px; font-size:15px; padding:12px; background:var(--teal); color:#07211d;}
+
+  .legend{
+    border-top:1px solid var(--border); padding:12px 16px 14px; display:flex; flex-direction:column; gap:8px;
+  }
+  .legend-title{font-size:11px; color:var(--text-dim);}
+  .legend-scale{display:flex; height:8px; border-radius:4px; overflow:hidden;}
+  .legend-scale span{flex:1;}
+  .legend-labels{display:flex; justify-content:space-between; font-size:10.5px; color:var(--text-dim);}
+
+  .hint{font-size:12px; color:var(--text-dim); line-height:1.5;}
+  .spinner{
+    width:14px; height:14px; border-radius:50%; border:2px solid rgba(255,255,255,.25);
+    border-top-color:var(--accent); animation:spin .7s linear infinite; display:inline-block;
+  }
+  @keyframes spin{to{transform:rotate(360deg);}}
+
+  .dot{width:8px; height:8px; border-radius:50%; flex:none;}
+  .dot.origin{background:#4ea8ff;}
+  .dot.dest{background:var(--flow-red);}
+
+  /* -------- navigation mode -------- */
+  .nav-bar{
+    position:absolute; z-index:600; top:16px; left:16px; right:16px;
+    background:var(--panel); border:1px solid var(--border); border-radius:var(--radius);
+    box-shadow:0 12px 30px rgba(0,0,0,.4);
+    padding:14px 16px; display:flex; align-items:center; justify-content:space-between; gap:12px;
+  }
+  .nav-stats{display:flex; flex-direction:column; gap:2px;}
+  .nav-eta{font-size:22px; font-weight:600; color:var(--teal);}
+  .nav-dist{font-size:22px; font-weight:600; color:var(--teal);}
+  .nav-off-route{color:var(--flow-orange); font-size:11px; margin-top:2px; display:none;}
+
+  .follow-toggle-wrap{display:flex; align-items:center; gap:7px;}
+  .follow-label{font-size:11.5px; color:var(--text-dim); font-weight:500;}
+  .follow-label.active{color:var(--teal); font-weight:600;}
+  .mode-toggle-wrap{display:flex; align-items:center; gap:7px; margin-bottom:2px;}
+  .mode-label{font-size:11px; color:var(--text-dim); font-weight:500;}
+  .mode-label.active{color:var(--accent); font-weight:600;}
+
+  .panel-handle{
+    display:none; position:absolute; top:-14px; left:50%; transform:translateX(-50%);
+    width:44px; height:22px; border-radius:11px; background:var(--panel-2);
+    border:1px solid var(--border); align-items:center; justify-content:center;
+    cursor:pointer; z-index:20; color:var(--text-dim); font-size:13px; line-height:1;
+  }
+  .switch{position:relative; display:inline-block; width:38px; height:21px; flex:none;}
+  .switch input{opacity:0; width:0; height:0;}
+  .switch .slider{
+    position:absolute; inset:0; cursor:pointer; background:var(--border);
+    border-radius:999px; transition:background .15s;
+  }
+  .switch .slider::before{
+    content:""; position:absolute; width:15px; height:15px; left:3px; top:3px;
+    background:var(--text); border-radius:50%; transition:transform .15s;
+  }
+  .switch input:checked + .slider{background:var(--teal);}
+  .switch input:checked + .slider::before{transform:translateX(17px); background:var(--accent-ink);}
+
+  .user-dot{
+    width:16px; height:16px; border-radius:50%; background:#4ea8ff; border:3px solid #0b1f33;
+    box-shadow:0 0 0 6px rgba(78,168,255,.25);
+  }
+
+  @media (max-width:640px){
+    .panel{
+      left:8px; right:8px; width:auto; top:auto; bottom:8px; height:30vh; margin-top:0;
+    }
+    .brand{top:8px; left:8px; padding:7px 12px 7px 11px;}
+    .brand .name{font-size:13px;}
+    .brand .tag{font-size:10px;}
+    #locate-btn{bottom:calc(30vh + 16px); right:8px; width:40px; height:40px;}
+    .nav-bar{left:8px; right:8px; top:8px; padding:10px 12px;}
+
+    .panel-scroll{padding:10px; gap:10px;}
+    .field-label{font-size:10px; margin-bottom:4px;}
+    input[type=text], input[type=password]{padding:8px 10px; font-size:13px;}
+    .btn{padding:8px 11px; font-size:13px;}
+    .btn.icon{width:36px;}
+    #key-card{padding:9px;}
+    #key-card p{font-size:11px; margin-bottom:7px;}
+    #go-btn{padding:10px; font-size:13.5px; margin-bottom:8px;}
+
+    .suggestions{gap:3px; margin-top:4px;}
+    .suggestion{padding:6px 8px; font-size:12px;}
+
+    .route-card{padding:9px; gap:4px;}
+    .route-card .time{font-size:16px;}
+    .route-card .meta{font-size:10.5px; gap:8px;}
+    .route-card .badge{font-size:9.5px; padding:1px 6px;}
+    .route-card .hint{font-size:10.5px;}
+    #routes-list{gap:7px !important;}
+
+    .legend{padding:8px 10px 10px; gap:5px;}
+    .legend-title{font-size:10px;}
+    .legend-scale{height:6px;}
+    .legend-labels{font-size:9.5px;}
+    .hint{font-size:10.5px;}
+
+    .follow-label{font-size:10px;}
+    .switch{width:34px; height:19px;}
+    .switch .slider::before{width:13px; height:13px;}
+    .switch input:checked + .slider::before{transform:translateX(15px);}
+
+    .panel-handle{display:flex;}
+    .panel.collapsed{height:0;}
+    .panel.collapsed .panel-scroll, .panel.collapsed .legend{display:none;}
+  }
+</style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<div class="brand" id="brand">
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M12 2C7.6 2 4 5.6 4 10c0 6 8 12 8 12s8-6 8-12c0-4.4-3.6-8-8-8Z" stroke="#ffb238" stroke-width="1.6"/><circle cx="12" cy="10" r="2.6" fill="#ffb238"/></svg>
+  <span class="name">Contourner</span>
+  <span class="tag">évite la cohue</span>
+</div>
+
+<button id="locate-btn" class="fab" title="Me centrer sur ma position">
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
+</button>
+
+<div class="panel" id="panel">
+  <button class="panel-handle" id="panel-handle" title="Réduire le panneau">▾</button>
+  <div class="panel-scroll">
+
+    <div id="key-card">
+      <p id="key-copy">Colle ta clé API TomTom gratuite (obtenue sur <a href="https://developer.tomtom.com/user/register" target="_blank" rel="noopener">developer.tomtom.com</a>) pour activer la carte de trafic en direct. Elle reste seulement dans cette page — rien n'est envoyé ailleurs.</p>
+      <div class="row">
+        <input type="password" id="key-input" placeholder="Clé API TomTom">
+        <button class="btn" id="key-save" style="flex:0 0 auto;">Activer</button>
+      </div>
+      <div id="key-status"></div>
+    </div>
+
+    <div id="origin-block" style="display:none;">
+      <span class="field-label">Point de départ</span>
+      <div class="row">
+        <input type="text" id="origin-input" placeholder="Adresse, ville, lieu…">
+        <button class="btn ghost icon" id="origin-locate-btn" title="Utiliser ma position actuelle">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
+        </button>
+      </div>
+      <div class="suggestions" id="origin-suggestions"></div>
+    </div>
+
+    <div id="search-block" style="display:none;">
+      <span class="field-label">Destination (le concert, la salle, l'adresse…)</span>
+      <input type="text" id="dest-input" placeholder="Ex: Centre Vidéotron, Québec">
+      <div class="suggestions" id="dest-suggestions"></div>
+    </div>
+
+    <div id="routes-block" style="display:none;">
+      <button class="btn" id="go-btn">Démarrer</button>
+      <span class="field-label">Itinéraires — trié par trafic évité</span>
+      <div id="routes-list" style="display:flex; flex-direction:column; gap:10px;"></div>
+    </div>
+
+    <div id="status-line" class="hint"></div>
+
+  </div>
+
+  <div class="legend">
+    <div class="mode-toggle-wrap">
+      <span class="mode-label" data-mode="day">Jour</span>
+      <label class="switch">
+        <input type="checkbox" id="mode-toggle-input" checked>
+        <span class="slider"></span>
+      </label>
+      <span class="mode-label" data-mode="night">Nuit</span>
+    </div>
+    <div class="legend-title">Carte de chaleur du trafic</div>
+    <div class="legend-scale">
+      <span style="background:var(--flow-green)"></span>
+      <span style="background:var(--flow-yellow)"></span>
+      <span style="background:var(--flow-orange)"></span>
+      <span style="background:var(--flow-red)"></span>
+    </div>
+    <div class="legend-labels"><span>Fluide</span><span>Dense</span><span>Ralenti</span><span>Bouchon</span></div>
+  </div>
+</div>
+
+<div class="nav-bar" id="nav-bar" style="display:none;">
+  <div class="nav-stats">
+    <span class="nav-eta mono" id="nav-eta">--</span>
+    <span class="nav-dist mono" id="nav-dist">--</span>
+    <span class="nav-off-route" id="nav-off-route">Recalcul en cours…</span>
+  </div>
+  <div class="row" style="flex:0 0 auto; gap:6px;">
+  <div class="follow-toggle-wrap" title="Navigation ancrée ou libre">
+    <span class="follow-label" data-mode="free">Libre</span>
+    <label class="switch">
+      <input type="checkbox" id="follow-toggle-input" checked>
+      <span class="slider"></span>
+    </label>
+    <span class="follow-label" data-mode="anchored">Ancré</span>
+  </div>
+  <button class="btn ghost" id="exit-nav-btn">Quitter</button>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+(function(){
+  let API_KEY = "";
+  let mapMode = 'night'; // 'day' = clair, 'night' = foncé — les deux restent en niveaux de gris
+  let map, originMarker, destMarker, trafficLayer, incidentsLayer, baseLayer, userMarker;
+  let originLatLng = null, destLatLng = null;
+  let routeLayers = [];
+  let routesData = [];
+  let selectedIndex = 0;
+  let navMode = false;
+  let navFollowMode = true; // true = ancré (auto-suit le GPS, verrouillé nord) / false = libre (pan/zoom manuel)
+  let navTotalDistanceM = null; // distance totale au moment du "Démarrer", pour calculer le % de complétion
+  let navWatchId = null;
+  let navRecalcTimer = null;
+  let navRecalculating = false;
+  let navActiveLatLngs = null;
+
+  const DEVIATION_THRESHOLD_M = 60;
+  const PERIODIC_RECALC_MS = 90000;
+
+  const keyInput = document.getElementById('key-input');
+  const keySave = document.getElementById('key-save');
+  const keyStatus = document.getElementById('key-status');
+  const keyCard = document.getElementById('key-card');
+  const originBlock = document.getElementById('origin-block');
+  const originInput = document.getElementById('origin-input');
+  const originSuggestionsEl = document.getElementById('origin-suggestions');
+  const originLocateBtn = document.getElementById('origin-locate-btn');
+  const searchBlock = document.getElementById('search-block');
+  const destInput = document.getElementById('dest-input');
+  const destSuggestionsEl = document.getElementById('dest-suggestions');
+  const routesBlock = document.getElementById('routes-block');
+  const routesList = document.getElementById('routes-list');
+  const statusLine = document.getElementById('status-line');
+  const goBtn = document.getElementById('go-btn');
+  const brandEl = document.getElementById('brand');
+  const panelEl = document.getElementById('panel');
+  const navBar = document.getElementById('nav-bar');
+  const navEta = document.getElementById('nav-eta');
+  const navDist = document.getElementById('nav-dist');
+  const navOffRoute = document.getElementById('nav-off-route');
+  const exitNavBtn = document.getElementById('exit-nav-btn');
+  const followToggleInput = document.getElementById('follow-toggle-input');
+  const followLabels = document.querySelectorAll('.follow-label');
+  const modeToggleInput = document.getElementById('mode-toggle-input');
+  const modeLabels = document.querySelectorAll('.mode-label');
+  const panelHandle = document.getElementById('panel-handle');
+
+  // ---------- Lock orientation north-up DURING NAVIGATION ONLY (blocks iOS/macOS Safari's
+  // native two-finger rotate/zoom gesture while following a route). Left alone while planning,
+  // so pinch-to-zoom on a trackpad or touchscreen keeps working normally the rest of the time.
+  ['gesturestart','gesturechange','gestureend'].forEach(evt => {
+    document.addEventListener(evt, e => { if(navMode && navFollowMode) e.preventDefault(); });
+  });
+
+  // ---------- Map init (neutral base until key is set) ----------
+  map = L.map('map', { zoomControl:false, attributionControl:false, touchRotate:false, rotate:false }).setView([46.8139, -71.2080], 12);
+
+  function updateModeLabels(){
+    modeLabels.forEach(el => {
+      el.classList.toggle('active', el.dataset.mode === mapMode);
+    });
+  }
+  modeToggleInput.addEventListener('change', () => {
+    mapMode = modeToggleInput.checked ? 'night' : 'day';
+    updateModeLabels();
+    if(API_KEY) setupMapLayers();
+  });
+  updateModeLabels();
+
+  let panelCollapsed = false;
+  panelHandle.addEventListener('click', () => {
+    panelCollapsed = !panelCollapsed;
+    panelEl.classList.toggle('collapsed', panelCollapsed);
+    panelHandle.textContent = panelCollapsed ? '▴' : '▾';
+    panelHandle.title = panelCollapsed ? "Afficher le panneau" : "Réduire le panneau";
+  });
+
+  function setStatus(msg, isError){
+    statusLine.textContent = msg || "";
+    statusLine.style.color = isError ? "var(--flow-red)" : "var(--text-dim)";
+  }
+
+  // ---------- API key handling ----------
+  keySave.addEventListener('click', activateKey);
+  keyInput.addEventListener('keydown', e => { if(e.key === 'Enter') activateKey(); });
+
+  function activateKey(){
+    const val = keyInput.value.trim();
+    if(!val){ keyStatus.textContent = "Colle d'abord une clé."; keyStatus.style.color = "var(--flow-red)"; return; }
+    API_KEY = val;
+    keyStatus.textContent = "Vérification…";
+    keyStatus.style.color = "var(--text-dim)";
+
+    fetch(`https://api.tomtom.com/maps/orbis/places/geocode/quebec.json?apiVersion=1&key=${API_KEY}&limit=1`)
+      .then(r => { if(!r.ok) throw new Error('bad key'); return r.json(); })
+      .then(() => {
+        keyStatus.textContent = "Clé activée ✓";
+        keyStatus.style.color = "var(--flow-green)";
+        keyCard.style.display = "none";
+        setupMapLayers();
+        originBlock.style.display = "block";
+        searchBlock.style.display = "block";
+        locateMe();
+      })
+      .catch(() => {
+        keyStatus.textContent = "Clé refusée — vérifie qu'elle est bien copiée et que les produits \"Map Display API\", \"Geocoding API\", \"Places Search API\" et \"Routing API\" (ou \"Extended Routing API\") sont activés sur ta clé, dans MyTomTom.";
+        keyStatus.style.color = "var(--flow-red)";
+      });
+  }
+
+  function setupMapLayers(){
+    if(baseLayer) map.removeLayer(baseLayer);
+    if(trafficLayer) map.removeLayer(trafficLayer);
+    if(incidentsLayer) map.removeLayer(incidentsLayer);
+    const tileStyle = mapMode === 'night' ? 'street-dark' : 'street-light';
+    const flowStyle = mapMode === 'night' ? 'flow-relative_dark' : 'flow-relative_light';
+    const incidentStyle = mapMode === 'night' ? 'dark' : 'light';
+    baseLayer = L.tileLayer(
+      `https://api.tomtom.com/maps/orbis/display/raster/tile/{z}/{x}/{y}?apiVersion=2&key=${API_KEY}&style=${tileStyle}&tileSize=512`,
+      { maxZoom:22, className:'grayscale-tiles' }
+    ).addTo(map);
+    trafficLayer = L.tileLayer(
+      `https://api.tomtom.com/maps/orbis/traffic/tile/flow/{z}/{x}/{y}.png?apiVersion=1&key=${API_KEY}&style=${flowStyle}&tileSize=512`,
+      { maxZoom:22, opacity:0.9 }
+    ).addTo(map);
+    // Accidents, travaux, fermetures — icônes et tronçons affectés, par-dessus la vitesse.
+    incidentsLayer = L.tileLayer(
+      `https://api.tomtom.com/maps/orbis/traffic/incidents/raster/tile/{z}/{x}/{y}?apiVersion=2&key=${API_KEY}&style=${incidentStyle}`,
+      { maxZoom:22, opacity:0.95 }
+    ).addTo(map);
+  }
+
+  // ---------- Geolocation / origin ----------
+  document.getElementById('locate-btn').addEventListener('click', () => {
+    if(navMode){ if(userMarker) map.setView(userMarker.getLatLng(), map.getZoom()); return; }
+    locateMe();
+  });
+  originLocateBtn.addEventListener('click', locateMe);
+
+  function locateMe(){
+    if(!navigator.geolocation){
+      setStatus("Géolocalisation indisponible — clique sur la carte pour placer ton départ.", true);
+      enableClickToSetOrigin();
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      pos => {
+        const ll = L.latLng(pos.coords.latitude, pos.coords.longitude);
+        setOrigin(ll, `${ll.lat.toFixed(4)}, ${ll.lng.toFixed(4)}`);
+        map.setView(ll, 14);
+      },
+      () => {
+        setStatus("Position refusée — clique sur la carte, ou tape une adresse de départ.", true);
+        enableClickToSetOrigin();
+      },
+      { enableHighAccuracy:true, timeout:8000 }
+    );
+  }
+
+  function enableClickToSetOrigin(){
+    map.once('click', e => setOrigin(e.latlng, `${e.latlng.lat.toFixed(4)}, ${e.latlng.lng.toFixed(4)}`));
+  }
+
+  function setOrigin(ll, label){
+    originLatLng = ll;
+    if(originMarker) map.removeLayer(originMarker);
+    originMarker = L.circleMarker(ll, {
+      radius:8, color:'#4ea8ff', weight:2, fillColor:'#4ea8ff', fillOpacity:0.9
+    }).addTo(map).bindTooltip('Départ');
+    if(label !== undefined) originInput.value = label;
+    maybeRoute();
+  }
+
+  function setDestination(ll, label){
+    destLatLng = ll;
+    if(destMarker) map.removeLayer(destMarker);
+    destMarker = L.circleMarker(ll, {
+      radius:8, color:'#e5484d', weight:2, fillColor:'#e5484d', fillOpacity:0.9
+    }).addTo(map).bindTooltip(label || 'Destination');
+    maybeRoute();
+  }
+
+  // ---------- Generic place search (used for both origin & destination) ----------
+  function wireSearchField(inputEl, suggestionsEl, onPick){
+    let timer = null;
+    inputEl.addEventListener('input', () => {
+      clearTimeout(timer);
+      const q = inputEl.value.trim();
+      if(q.length < 3){ suggestionsEl.innerHTML = ""; return; }
+      timer = setTimeout(() => runSearch(q, suggestionsEl, onPick), 350);
+    });
+  }
+
+  function runSearch(q, suggestionsEl, onPick){
+    if(!API_KEY) return;
+    const biasLat = originLatLng ? originLatLng.lat : 46.8139;
+    const biasLon = originLatLng ? originLatLng.lng : -71.2080;
+    fetch(`https://api.tomtom.com/maps/orbis/places/search/${encodeURIComponent(q)}.json?apiVersion=1&key=${API_KEY}&limit=5&lat=${biasLat}&lon=${biasLon}&countrySet=CA,US`)
+      .then(r => r.json())
+      .then(data => {
+        suggestionsEl.innerHTML = "";
+        (data.results || []).forEach(res => {
+          const div = document.createElement('div');
+          div.className = 'suggestion';
+          div.textContent = res.address && res.address.freeformAddress ? res.address.freeformAddress : (res.poi && res.poi.name) || "Résultat";
+          div.addEventListener('click', () => {
+            const ll = L.latLng(res.position.lat, res.position.lon);
+            onPick(ll, div.textContent);
+            suggestionsEl.innerHTML = "";
+          });
+          suggestionsEl.appendChild(div);
+        });
+      })
+      .catch(() => setStatus("Recherche impossible pour le moment.", true));
+  }
+
+  wireSearchField(originInput, originSuggestionsEl, (ll, label) => {
+    setOrigin(ll, label);
+    originInput.value = label;
+  });
+  wireSearchField(destInput, destSuggestionsEl, (ll, label) => {
+    setDestination(ll, label);
+    destInput.value = label;
+  });
+
+  // ---------- Routing ----------
+  function maybeRoute(){
+    if(originLatLng && destLatLng && !navMode) computeRoutes();
+  }
+
+  function fetchRouteSet(origin, dest, extraParams){
+    const base = `https://api.tomtom.com/maps/orbis/routing/calculateRoute/`
+      + `${origin.lat},${origin.lng}:${dest.lat},${dest.lng}/json`
+      + `?apiVersion=2&key=${API_KEY}&traffic=live&routeRepresentation=polyline&travelMode=car&sectionType=traffic`;
+    const url = base + extraParams;
+    return fetch(url).then(async r => {
+      if(!r.ok){
+        const bodyText = await r.text();
+        throw new Error(`HTTP ${r.status} — ${bodyText.slice(0,200)}`);
+      }
+      return r.json();
+    }).then(data => data.routes || []);
+  }
+
+  // Plus le trajet le plus rapide est long, moins on tolère de détour en % pour éviter le trafic —
+  // quelques minutes de plus passent bien sur un court trajet, beaucoup moins sur un trajet de 3h+.
+  function maxExtraTimePct(fastestMinutes){
+    if(fastestMinutes <= 15) return 100;
+    if(fastestMinutes <= 30) return 75;
+    if(fastestMinutes <= 60) return 50;
+    if(fastestMinutes <= 120) return 35;
+    if(fastestMinutes <= 180) return 25;
+    if(fastestMinutes <= 240) return 20;
+    return 15;
+  }
+
+  function computeRoutes(){
+    setStatus("Calcul des itinéraires…");
+    routesBlock.style.display = "none";
+    clearRouteLayers();
+
+    Promise.allSettled([
+      fetchRouteSet(originLatLng, destLatLng, "&maxAlternatives=4"),
+      fetchRouteSet(originLatLng, destLatLng, "&maxAlternatives=2&avoid=motorways")
+    ]).then(results => {
+      const normal = results[0].status === 'fulfilled' ? results[0].value : [];
+      const emergency = results[1].status === 'fulfilled' ? results[1].value : [];
+      normal.forEach(r => r._emergency = false);
+      emergency.forEach(r => r._emergency = true);
+      let combined = normal.concat(emergency);
+
+      if(!combined.length){
+        const firstErr = results.find(r => r.status === 'rejected');
+        setStatus(firstErr ? "Le calcul d'itinéraire a échoué : " + firstErr.reason.message : "Aucun itinéraire trouvé.", true);
+        return;
+      }
+
+      const fastestSec = Math.min(...combined.map(r => r.summary.travelTimeInSeconds));
+      const pct = maxExtraTimePct(fastestSec / 60);
+      const capSec = fastestSec * (1 + pct / 100);
+      routesData = combined.filter(r => r.summary.travelTimeInSeconds <= capSec);
+      // Sécurité : ne jamais finir avec une liste vide si l'arrondi coupe tout.
+      if(!routesData.length) routesData = combined.filter(r => r.summary.travelTimeInSeconds === fastestSec);
+
+      const byDelay = routesData
+        .map((r, i) => ({ r, i }))
+        .sort((a,b) => (a.r.summary.trafficDelayInSeconds||0) - (b.r.summary.trafficDelayInSeconds||0));
+      const lowTrafficIndex = byDelay[0].i;
+      renderRoutes(lowTrafficIndex);
+      selectedIndex = lowTrafficIndex;
+      drawRoutes(lowTrafficIndex);
+      setStatus("");
+    });
+  }
+
+  function fmtDuration(sec){
+    const m = Math.round(sec/60);
+    if(m < 60) return `${m} min`;
+    return `${Math.floor(m/60)} h ${m%60} min`;
+  }
+  function fmtDist(meters){
+    return (meters/1000).toFixed(1) + " km";
+  }
+
+  function renderRoutes(lowTrafficIndex){
+    routesList.innerHTML = "";
+    const fastestTime = routesData[0].summary.travelTimeInSeconds;
+
+    routesData.forEach((route, i) => {
+      const s = route.summary;
+      const delay = s.trafficDelayInSeconds || 0;
+      const extraVsFastest = s.travelTimeInSeconds - fastestTime;
+      const delayClass = delay < 120 ? 'ok' : (delay < 360 ? 'mid' : 'bad');
+
+      const card = document.createElement('div');
+      card.className = 'route-card' + (i === selectedIndex ? ' selected' : '');
+      card.dataset.index = i;
+
+      let badges = "";
+      if(i === lowTrafficIndex) badges += `<span class="badge low-traffic">Moins de trafic</span>`;
+      else if(i === 0) badges += `<span class="badge fastest">Le plus rapide</span>`;
+      if(route._emergency) badges += `<span class="badge emergency">Petites rues</span>`;
+
+      card.innerHTML = `
+        <div class="top">
+          <span class="time mono">${fmtDuration(s.travelTimeInSeconds)}</span>
+          <span class="badges-row">${badges}</span>
+        </div>
+        <div class="meta mono">
+          <span>${fmtDist(s.lengthInMeters)}</span>
+          <span class="delay ${delayClass}">${delay > 30 ? '(dont ' + fmtDuration(delay) + ' de trafic)' : 'trafic négligeable'}</span>
+        </div>
+        ${i !== 0 && extraVsFastest > 30 ? `<div class="hint">${'+' + fmtDuration(extraVsFastest)} vs. le plus rapide, mais moins de bouchon</div>` : ''}
+      `;
+      card.addEventListener('click', () => {
+        selectedIndex = i;
+        document.querySelectorAll('.route-card').forEach(c => c.classList.remove('selected'));
+        card.classList.add('selected');
+        highlightRoute(i);
+      });
+      routesList.appendChild(card);
+    });
+
+    routesBlock.style.display = "block";
+  }
+
+  function clearRouteLayers(){
+    routeLayers.forEach(l => map.removeLayer(l));
+    routeLayers = [];
+  }
+
+  function pointsToLatLngs(route){
+    let pts = [];
+    route.legs.forEach(leg => {
+      leg.points.forEach(p => pts.push([p.latitude, p.longitude]));
+    });
+    return pts;
+  }
+
+  // ---- Colour a route by its traffic sections (magnitudeOfDelay 0=fluide..3=majeur) ----
+  function trafficColor(mag){
+    const s = getComputedStyle(document.documentElement);
+    if(mag === 1) return s.getPropertyValue('--flow-yellow').trim();
+    if(mag === 2) return s.getPropertyValue('--flow-orange').trim();
+    if(mag >= 3) return s.getPropertyValue('--flow-red').trim();
+    return s.getPropertyValue('--flow-green').trim();
+  }
+
+  function buildRouteLines(route, latlngs, isSelected){
+    const weight = isSelected ? 6 : 4;
+    const opacity = isSelected ? 0.95 : 0.5;
+    const sections = (route.sections || []).filter(s => s.sectionType === 'TRAFFIC')
+      .sort((a,b) => a.startPointIndex - b.startPointIndex);
+
+    // Alternates we're not focused on stay a plain muted dashed line — colouring
+    // every candidate at once turns the map into confetti and hides the pick.
+    if(!isSelected || !sections.length){
+      return [ L.polyline(latlngs, {
+        color: isSelected ? '#2dd4bf' : '#5b6b7a',
+        weight, opacity,
+        dashArray: isSelected ? null : '2 8'
+      }) ];
+    }
+
+    const segs = [];
+    let cursor = 0;
+    sections.forEach(sec => {
+      if(sec.startPointIndex > cursor){
+        segs.push(L.polyline(latlngs.slice(cursor, sec.startPointIndex + 1), { color: trafficColor(0), weight, opacity }));
+      }
+      segs.push(L.polyline(latlngs.slice(sec.startPointIndex, sec.endPointIndex + 1), { color: trafficColor(sec.magnitudeOfDelay), weight, opacity }));
+      cursor = Math.max(cursor, sec.endPointIndex);
+    });
+    if(cursor < latlngs.length - 1){
+      segs.push(L.polyline(latlngs.slice(cursor), { color: trafficColor(0), weight, opacity }));
+    }
+    return segs;
+  }
+
+  function renderRouteLines(highlightIdx){
+    clearRouteLayers();
+    routesData.forEach((route, i) => {
+      const latlngs = pointsToLatLngs(route);
+      const isSelected = i === highlightIdx;
+      buildRouteLines(route, latlngs, isSelected).forEach(line => {
+        line.addTo(map);
+        line.on('click', () => {
+          selectedIndex = i;
+          document.querySelectorAll('.route-card').forEach(c => c.classList.toggle('selected', +c.dataset.index === i));
+          renderRouteLines(i);
+        });
+        if(isSelected) line.bringToFront();
+        routeLayers.push(line);
+      });
+    });
+  }
+
+  function drawRoutes(highlightIdx){
+    renderRouteLines(highlightIdx);
+    const bounds = L.latLngBounds(pointsToLatLngs(routesData[highlightIdx]));
+    map.fitBounds(bounds, { paddingTopLeft:[360,80], paddingBottomRight:[40,40] });
+  }
+
+  function highlightRoute(i){
+    renderRouteLines(i);
+  }
+
+  // ==================== NAVIGATION (GO) MODE ====================
+
+  function updateFollowLabels(){
+    followLabels.forEach(el => {
+      el.classList.toggle('active', (el.dataset.mode === 'anchored') === navFollowMode);
+    });
+  }
+
+  goBtn.addEventListener('click', startNavigation);
+  exitNavBtn.addEventListener('click', stopNavigation);
+  followToggleInput.addEventListener('change', () => {
+    navFollowMode = followToggleInput.checked;
+    updateFollowLabels();
+    if(navFollowMode && userMarker){
+      map.setView(userMarker.getLatLng(), 17, { animate:true });
+    }
+  });
+
+  let navFirstFixHandled = false;
+  let navHasJoinedRoute = false;
+  let navOffRouteSince = null;
+  const OFF_ROUTE_CONFIRM_MS = 8000; // sustained deviation required before we trust it over the chosen route
+  const JOIN_ROUTE_THRESHOLD_M = 120; // how close to the planned route counts as "actually there"
+
+  function startNavigation(){
+    if(!routesData.length) return;
+    navMode = true;
+    navFollowMode = true;
+    followToggleInput.checked = true;
+    updateFollowLabels();
+    navFirstFixHandled = false;
+    navHasJoinedRoute = false;
+    navOffRouteSince = null;
+
+    brandEl.style.display = "none";
+    panelEl.style.display = "none";
+    navBar.style.display = "flex";
+    navOffRoute.style.display = "none";
+
+    const chosen = routesData[selectedIndex];
+    navActiveLatLngs = pointsToLatLngs(chosen);
+    navTotalDistanceM = chosen.summary.lengthInMeters;
+    clearRouteLayers();
+    buildRouteLines(chosen, navActiveLatLngs, true).forEach(line => { line.addTo(map); routeLayers.push(line); });
+    updateNavStats(chosen.summary);
+
+    const startLL = originLatLng || L.latLng(navActiveLatLngs[0][0], navActiveLatLngs[0][1]);
+    map.setView(startLL, 17);
+    placeUserMarker(startLL);
+
+    if(navigator.geolocation){
+      navWatchId = navigator.geolocation.watchPosition(onNavPosition, onNavPositionError, {
+        enableHighAccuracy:true, maximumAge:2000, timeout:15000
+      });
+    }
+    navRecalcTimer = setInterval(() => {
+      if(userMarker) recalcNavRoute(userMarker.getLatLng());
+    }, PERIODIC_RECALC_MS);
+  }
+
+  function stopNavigation(){
+    navMode = false;
+    if(navWatchId !== null){ navigator.geolocation.clearWatch(navWatchId); navWatchId = null; }
+    if(navRecalcTimer){ clearInterval(navRecalcTimer); navRecalcTimer = null; }
+
+    brandEl.style.display = "flex";
+    panelEl.style.display = "flex";
+    navBar.style.display = "none";
+
+    const lastPos = userMarker ? userMarker.getLatLng() : originLatLng;
+    if(lastPos) setOrigin(lastPos, `${lastPos.lat.toFixed(4)}, ${lastPos.lng.toFixed(4)}`);
+  }
+
+  function placeUserMarker(ll){
+    if(userMarker){ userMarker.setLatLng(ll); return; }
+    userMarker = L.marker(ll, {
+      icon: L.divIcon({ className:'', html:'<div class="user-dot"></div>', iconSize:[16,16] })
+    }).addTo(map);
+  }
+
+  function onNavPositionError(){
+    navOffRoute.textContent = "Signal GPS perdu — reste sur l'itinéraire affiché.";
+    navOffRoute.style.display = "block";
+  }
+
+  function onNavPosition(pos){
+    const ll = L.latLng(pos.coords.latitude, pos.coords.longitude);
+
+    if(!navHasJoinedRoute){
+      const distFromRoute = navActiveLatLngs ? distanceToPolylineMeters(ll, navActiveLatLngs) : Infinity;
+      if(distFromRoute <= JOIN_ROUTE_THRESHOLD_M){
+        navHasJoinedRoute = true;
+        navOffRoute.style.display = "none";
+      } else {
+        // Real GPS is far from the planned route (e.g. a departure point you typed
+        // rather than where you're physically standing) — keep the camera and dot
+        // anchored to the chosen route instead of yanking them to an irrelevant fix.
+        navOffRoute.textContent = "Approche du point de départ pour activer le suivi en direct…";
+        navOffRoute.style.display = "block";
+        return;
+      }
+    }
+
+    placeUserMarker(ll);
+    if(navFollowMode){
+      map.panTo(ll, { animate:true });
+    }
+    // In free mode the dot still updates live, but the camera stays wherever you left it.
+
+    if(navActiveLatLngs){
+      const dist = distanceToPolylineMeters(ll, navActiveLatLngs);
+      if(dist > DEVIATION_THRESHOLD_M){
+        if(navOffRouteSince === null){
+          navOffRouteSince = Date.now();
+        } else if(Date.now() - navOffRouteSince > OFF_ROUTE_CONFIRM_MS && !navRecalculating){
+          recalcNavRoute(ll);
+          navOffRouteSince = null;
+        }
+      } else {
+        navOffRouteSince = null;
+      }
+    }
+  }
+
+  function recalcNavRoute(fromLL){
+    if(navRecalculating || !destLatLng) return;
+    navRecalculating = true;
+    navOffRoute.textContent = "Recalcul en cours…";
+    navOffRoute.style.display = "block";
+
+    Promise.allSettled([
+      fetchRouteSet(fromLL, destLatLng, "&maxAlternatives=2"),
+      fetchRouteSet(fromLL, destLatLng, "&maxAlternatives=1&avoid=motorways")
+    ]).then(results => {
+      const normal = results[0].status === 'fulfilled' ? results[0].value : [];
+      const emergency = results[1].status === 'fulfilled' ? results[1].value : [];
+      const all = normal.concat(emergency);
+      if(!all.length){
+        navOffRoute.textContent = "Recalcul impossible — itinéraire précédent conservé.";
+        navRecalculating = false;
+        return;
+      }
+      const best = all.reduce((a,b) => (b.summary.trafficDelayInSeconds||0) < (a.summary.trafficDelayInSeconds||0) ? b : a);
+      routesData = [best];
+      selectedIndex = 0;
+      navActiveLatLngs = pointsToLatLngs(best);
+      clearRouteLayers();
+      buildRouteLines(best, navActiveLatLngs, true).forEach(line => { line.addTo(map); routeLayers.push(line); });
+      updateNavStats(best.summary);
+      navOffRoute.style.display = "none";
+      navRecalculating = false;
+    });
+  }
+
+  function updateNavStats(summary){
+    navEta.textContent = fmtDuration(summary.travelTimeInSeconds) + " restantes";
+    let pctText = "";
+    if(navTotalDistanceM){
+      const pct = Math.round(Math.min(100, Math.max(0, 100 - (summary.lengthInMeters / navTotalDistanceM * 100))));
+      pctText = ` (${pct}%)`;
+    }
+    navDist.textContent = fmtDist(summary.lengthInMeters) + " restants" + pctText;
+  }
+
+  // ---- point-to-polyline distance (flat equirectangular approx, fine for short ranges) ----
+  function toXY(lat, lon, refLat){
+    const R = 6371000;
+    const x = (lon * Math.PI/180) * R * Math.cos(refLat*Math.PI/180);
+    const y = (lat * Math.PI/180) * R;
+    return [x,y];
+  }
+  function pointSegDist(px,py, ax,ay, bx,by){
+    const dx=bx-ax, dy=by-ay;
+    const len2 = dx*dx+dy*dy;
+    let t = len2 ? ((px-ax)*dx+(py-ay)*dy)/len2 : 0;
+    t = Math.max(0, Math.min(1,t));
+    const cx = ax+t*dx, cy = ay+t*dy;
+    return Math.hypot(px-cx, py-cy);
+  }
+  function distanceToPolylineMeters(latlng, latlngs){
+    const refLat = latlng.lat;
+    const [px,py] = toXY(latlng.lat, latlng.lng, refLat);
+    let min = Infinity;
+    for(let i=0;i<latlngs.length-1;i++){
+      const [ax,ay] = toXY(latlngs[i][0], latlngs[i][1], refLat);
+      const [bx,by] = toXY(latlngs[i+1][0], latlngs[i+1][1], refLat);
+      const d = pointSegDist(px,py,ax,ay,bx,by);
+      if(d<min) min=d;
+    }
+    return min;
+  }
+
+})();
+</script>
+</body>
+</html>
